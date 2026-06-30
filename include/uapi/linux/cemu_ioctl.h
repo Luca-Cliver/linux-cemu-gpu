@@ -16,6 +16,12 @@
  */
 #define CEMU_IOCTL_MAGIC  'C'
 
+enum {
+	PROGRAM_TARGET_HOST,
+	PROGRAM_TARGET_CUDA_DEVPTR,
+	PROGRAM_TARGET_INVALID,
+};
+
 /* IOCTL_CEMU_DOWNLOAD / IOCTL_CEMU_UNLOAD / ACTIVATE / DEACTIVATE argument */
 struct ioctl_download {
 	__u64	name;          /* const char * (user pointer) */
@@ -26,6 +32,7 @@ struct ioctl_download {
 	__s32	runtime_scale;
 	__s32	jit;
 	__s32	indirect;
+	__s32	target;
 	__s32	pind;          /* out for DOWNLOAD */
 };
 
@@ -60,4 +67,3 @@ struct ioctl_create_mrs {
 #define IOCTL_CEMU_DELETE_MRS  _IOW (CEMU_IOCTL_MAGIC, 0x06, struct ioctl_create_mrs)
 
 #endif /* _UAPI_LINUX_CEMU_IOCTL_H */
-

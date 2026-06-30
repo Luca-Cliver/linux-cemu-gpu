@@ -1029,11 +1029,11 @@ static blk_status_t nvme_setup_load(struct nvme_ns *ns, struct request *req,
 	cmnd->load.prp1 = 0;
 	cmnd->load.prp2 = 0;
 	cmnd->load.indirect = cio->indirect;
+	cmnd->load.target = cio->target;
 	cmnd->load.upload = 1;
 	cmnd->load.cid = 0;
 	cmnd->load.flags = 0;
 	cmnd->load.rsvd = 0;
-	cmnd->load.rsvd10 = 0;
 	cmnd->load.rsvd_ctrl = 0;
 	return 0;
 }

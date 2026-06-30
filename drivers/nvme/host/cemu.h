@@ -31,6 +31,7 @@ struct cemu_bio {
 	int psize;
 	int jit;
 	int indirect;
+	int target;
 	int runtime;
 	int runtime_scale;
 };

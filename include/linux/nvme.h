@@ -1802,7 +1802,7 @@ struct nvme_load_program_cmd {
 	__u8	sel      : 1;	// 0 for load 1 for unload
 	__u8	pit      : 3;	// program identifier type, 0 is not used, 1 is PUID (program unique identifier)
 	__u8	indirect : 1;	// CEMU only
-	__u8	rsvd10   : 3;
+	__u8	target   : 3;	// CEMU only
 	__u32	psize;		// total program size in bytes
 	__u64	pid;		// program identifier, PUID when pit is 1
 	__u32	numb;		// number of bytes to transfer

@@ -218,6 +218,9 @@ static int cemu_load_program(struct cemu_dev *dev, unsigned long arg)
 	struct ioctl_download download;
 	if (copy_from_user(&download, (void __user *)arg, sizeof(download)))
 		return -EFAULT;
+	if (download.target < PROGRAM_TARGET_HOST ||
+	    download.target >= PROGRAM_TARGET_INVALID)
+		return -EINVAL;
 
 	char prog_name[256];
 	const char __user *uname = (const char __user *)(uintptr_t)download.name;
@@ -257,6 +260,7 @@ static int cemu_load_program(struct cemu_dev *dev, unsigned long arg)
 	cio->runtime_scale = download.runtime_scale;
 	cio->ptype = download.ptype;
 	cio->indirect = download.indirect;
+	cio->target = download.target;
 	cio->sel = 0;
 	atomic_set(&cio->ref, 1);
 
