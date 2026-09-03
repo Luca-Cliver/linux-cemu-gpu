@@ -303,6 +303,8 @@ static int nvme_user_cmd(struct nvme_ctrl *ctrl, struct nvme_ns *ns,
 	c.common.nsid = cpu_to_le32(cmd.nsid);
 	c.common.cdw2[0] = cpu_to_le32(cmd.cdw2);
 	c.common.cdw2[1] = cpu_to_le32(cmd.cdw3);
+	if (cmd.nsid == 3)
+		c.common.metadata = cpu_to_le32(cmd.metadata);
 	c.common.cdw10 = cpu_to_le32(cmd.cdw10);
 	c.common.cdw11 = cpu_to_le32(cmd.cdw11);
 	c.common.cdw12 = cpu_to_le32(cmd.cdw12);
