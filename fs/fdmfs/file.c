@@ -234,8 +234,17 @@ err:
 
 int fdmfs_get_memory_range(struct file *filp, struct nvme_memory_range *mr)
 {
-	struct fdmfs_inode *fdmfs_inode = filp->private_data;
-	struct fdm_region *region = fdmfs_inode->region;
+	struct fdmfs_inode *fdmfs_inode;
+	struct fdm_region *region;
+
+	if (!filp || !mr || !file_inode(filp) ||
+	    file_inode(filp)->i_sb->s_magic != FDMFS_MAGIC)
+		return -EINVAL;
+
+	fdmfs_inode = filp->private_data;
+	if (!fdmfs_inode)
+		return -EINVAL;
+	region = fdmfs_inode->region;
 
 	if (region == NULL)
 		return -EINVAL;

@@ -450,6 +450,8 @@ static int cemu_create_mrs(struct cemu_dev *dev, unsigned long arg)
 				(sizeof(long long) * create.nr_fd * 2) +
 				(sizeof(struct nvme_memory_range) * create.nr_fd),
 				GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
 	int *mr_fd = buf;
 	long long *off = buf + sizeof(int) * create.nr_fd;
 	long long *size = (void *)off + sizeof(long long) * create.nr_fd;
@@ -472,11 +474,15 @@ static int cemu_create_mrs(struct cemu_dev *dev, unsigned long arg)
 		}
 		ret = fdmfs_get_memory_range(file, &mr[i]);
 		if (ret) {
-			pr_err("CEMU CSD fdmfs_get_memory_range failed\n");
+			pr_err("CEMU CSD fd %d is not an allocated FDMFS file\n",
+			       mr_fd[i]);
+			fput(file);
 			goto err;
 		}
 		if (mr[i].len < off[i] + size[i]) {
 			pr_err("CEMU CSD ioctl cemu_create_mrs: off+size bigger than fd %d's size!", mr_fd[i]);
+			fput(file);
+			ret = -EINVAL;
 			goto err;
 		}
 		mr[i].sb += off[i];
@@ -484,6 +490,7 @@ static int cemu_create_mrs(struct cemu_dev *dev, unsigned long arg)
 			mr[i].len -= off[i];
 		else
 			mr[i].len = size[i];
+		fput(file);
 	}
 
 	union nvme_result result;
