@@ -449,6 +449,7 @@ static int nvme_uring_cmd_io(struct nvme_ctrl *ctrl, struct nvme_ns *ns,
 	blk_mq_req_flags_t blk_flags = 0;
 	int ret;
 
+	memset(&c, 0, sizeof(c));
 	c.common.opcode = READ_ONCE(cmd->opcode);
 	c.common.flags = READ_ONCE(cmd->flags);
 	if (c.common.flags)
