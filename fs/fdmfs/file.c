@@ -29,7 +29,7 @@ static ssize_t fdmfs_rw_iter(struct kiocb *iocb, struct iov_iter *iter)
 		return -EINVAL;
 	}
 
-	trace_fdmfs_rw_begin(iocb);
+	trace_fdmfs_rw_begin(iocb, iov_iter_count(iter));
 	struct inode *ino = file_inode(iocb->ki_filp);
 
 	inode_lock_shared(ino);

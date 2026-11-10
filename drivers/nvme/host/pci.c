@@ -489,6 +489,10 @@ static inline void nvme_write_sq_db(struct nvme_queue *nvmeq, bool write_sq)
 static inline void nvme_sq_copy_cmd(struct nvme_queue *nvmeq,
 				    struct nvme_command *cmd)
 {
+	if (cmd->common.opcode == 2 || cmd->common.opcode == 5 ||
+	    cmd->common.opcode == 1)
+		trace_nvme_cemu_io("sq_copy", nvmeq->dev->ctrl.instance,
+				   nvmeq->qid, cmd);
 	memcpy(nvmeq->sq_cmds + (nvmeq->sq_tail << nvmeq->sqes),
 		absolute_pointer(cmd), sizeof(*cmd));
 	if (++nvmeq->sq_tail == nvmeq->q_depth)
@@ -1031,6 +1035,10 @@ static blk_status_t nvme_prep_rq(struct nvme_dev *dev, struct request *req)
 	}
 
 	nvme_start_request(req);
+	if (iod->cmd.common.opcode == 2 || iod->cmd.common.opcode == 5 ||
+	    iod->cmd.common.opcode == 1)
+		trace_nvme_cemu_io("prepared", dev->ctrl.instance,
+				   nvme_req_qid(req), &iod->cmd);
 	trace_nvme_prep_rq(req, iod->cmd.common.opcode, iod->cmd.common.nsid, iod->cmd.rw.length);
 	return BLK_STS_OK;
 out_unmap_data:
@@ -1223,6 +1231,11 @@ static inline void nvme_handle_cqe(struct nvme_queue *nvmeq,
 	}
 
 	trace_nvme_sq(req, cqe->sq_head, nvmeq->sq_tail);
+	if (nvme_req(req)->cmd->common.opcode == 2 ||
+	    nvme_req(req)->cmd->common.opcode == 5 ||
+	    nvme_req(req)->cmd->common.opcode == 1)
+		trace_nvme_cemu_io("cq_seen", nvmeq->dev->ctrl.instance,
+				   nvmeq->qid, nvme_req(req)->cmd);
 	if (!nvme_try_complete_req(req, cqe->status, cqe->result) &&
 	    !blk_mq_add_to_batch(req, iob, nvme_req(req)->status,
 					nvme_pci_complete_batch))

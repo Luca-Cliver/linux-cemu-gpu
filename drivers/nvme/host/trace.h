@@ -160,6 +160,34 @@ TRACE_EVENT(nvme_prep_rq,
 		__entry->opcode, __entry->nsid, __entry->nlb)
 );
 
+TRACE_EVENT(nvme_cemu_io,
+	TP_PROTO(const char *stage, int ctrl, int qid, struct nvme_command *cmd),
+	TP_ARGS(stage, ctrl, qid, cmd),
+	TP_STRUCT__entry(
+		__string(stage, stage)
+		__field(int, ctrl)
+		__field(int, qid)
+		__field(u16, cid)
+		__field(u32, nsid)
+		__field(u8, opcode)
+		__field(u64, offset)
+		__field(u32, bytes)
+	),
+	TP_fast_assign(
+		__assign_str(stage, stage);
+		__entry->ctrl = ctrl;
+		__entry->qid = qid;
+		__entry->cid = le16_to_cpu(cmd->common.command_id);
+		__entry->nsid = le32_to_cpu(cmd->common.nsid);
+		__entry->opcode = cmd->common.opcode;
+		__entry->offset = le64_to_cpu(cmd->rw.slba);
+		__entry->bytes = le32_to_cpu(cmd->common.cdw12);
+	),
+	TP_printk("coverage=2 stage=%s ctrl=%d qid=%d cid=%u nsid=%u opcode=%u offset=%llu bytes=%u",
+		__get_str(stage), __entry->ctrl, __entry->qid, __entry->cid,
+		__entry->nsid, __entry->opcode, __entry->offset, __entry->bytes)
+);
+
 #undef aer_name
 
 TRACE_EVENT(nvme_sq,

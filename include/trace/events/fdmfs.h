@@ -9,15 +9,22 @@
 #include <linux/trace_seq.h>
 
 TRACE_EVENT(fdmfs_rw_begin,
-	    TP_PROTO(struct kiocb *iocb),
-	    TP_ARGS(iocb),
+	    TP_PROTO(struct kiocb *iocb, size_t bytes),
+	    TP_ARGS(iocb, bytes),
 	    TP_STRUCT__entry(
 		__field(struct kiocb *, iocb)
+		__field(loff_t, offset)
+		__field(size_t, bytes)
+		__string(name, iocb->ki_filp->f_path.dentry->d_name.name)
 	    ),
 	    TP_fast_assign(
 		__entry->iocb = iocb;
+		__entry->offset = iocb->ki_pos;
+		__entry->bytes = bytes;
+		__assign_str(name, iocb->ki_filp->f_path.dentry->d_name.name);
 	    ),
-	    TP_printk("iocb %p", __entry->iocb)
+	    TP_printk("iocb %p offset=%lld bytes=%zu name=%s", __entry->iocb,
+		      __entry->offset, __entry->bytes, __get_str(name))
 );
 
 TRACE_EVENT(fdmfs_rw_middle,
