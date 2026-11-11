@@ -172,6 +172,8 @@ TRACE_EVENT(nvme_cemu_io,
 		__field(u8, opcode)
 		__field(u64, offset)
 		__field(u32, bytes)
+		__field(u64, transfer_id)
+		__field(u32, packet_bytes)
 	),
 	TP_fast_assign(
 		__assign_str(stage, stage);
@@ -182,10 +184,16 @@ TRACE_EVENT(nvme_cemu_io,
 		__entry->opcode = cmd->common.opcode;
 		__entry->offset = le64_to_cpu(cmd->rw.slba);
 		__entry->bytes = le32_to_cpu(cmd->common.cdw12);
+		__entry->transfer_id = __entry->nsid == 2 && __entry->opcode == 5 ?
+			le32_to_cpu(cmd->common.cdw13) |
+			((u64)le32_to_cpu(cmd->common.cdw14) << 32) : 0;
+		__entry->packet_bytes = __entry->nsid == 2 && __entry->opcode == 5 ?
+			le32_to_cpu(cmd->common.cdw15) : 0;
 	),
-	TP_printk("coverage=2 stage=%s ctrl=%d qid=%d cid=%u nsid=%u opcode=%u offset=%llu bytes=%u",
+	TP_printk("coverage=2 stage=%s ctrl=%d qid=%d cid=%u nsid=%u opcode=%u offset=%llu bytes=%u transfer_id=%llu packet_bytes=%u",
 		__get_str(stage), __entry->ctrl, __entry->qid, __entry->cid,
-		__entry->nsid, __entry->opcode, __entry->offset, __entry->bytes)
+		__entry->nsid, __entry->opcode, __entry->offset, __entry->bytes,
+		__entry->transfer_id, __entry->packet_bytes)
 );
 
 #undef aer_name

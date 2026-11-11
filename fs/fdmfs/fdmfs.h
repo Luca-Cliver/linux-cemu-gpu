@@ -27,6 +27,12 @@ struct fdmfs_inode {
 	struct list_head children;
 	struct fdm_region *region;
 	int ino;
+	unsigned int region_pins;
+	bool kv_registered;
+	bool kv_failed;
+	u64 kv_input_bytes;
+	u64 kv_transfer_id;
+	struct mutex kv_write_lock;
 };
 
 // on-disk super block
@@ -72,6 +78,12 @@ ssize_t fdmfs_copy_file_range(struct file *file_in, loff_t pos_in,
 				     struct file *file_out, loff_t pos_out,
 				     size_t size, unsigned int flags);
 int fdmfs_get_memory_range(struct file *filp, struct nvme_memory_range *mr);
+int fdmfs_pin_memory_range(struct file *file, struct block_device *bdev,
+			   struct nvme_memory_range *range);
+void fdmfs_unpin_memory_range(struct file *file);
+int fdmfs_register_input(struct file *file, u64 input_bytes);
+void fdmfs_unregister_input_locked(struct file *file);
+void fdmfs_enable_input(struct file *file);
 
 extern const struct iomap_ops fdmfs_iomap_ops;
 extern const struct file_operations fdmfs_fops;

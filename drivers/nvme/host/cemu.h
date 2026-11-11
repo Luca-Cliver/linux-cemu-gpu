@@ -62,6 +62,8 @@ struct cemu_dev {
 	int cur_rsid;
 	struct list_head prog_list;
 	struct mutex lock;
+	struct mutex mrs_lock;
+	struct list_head pinned_mrs;
 };
 
 extern int cemu_bdev_major;
@@ -77,5 +79,9 @@ void cemu_dev_remove(struct pci_dev *pdev, struct nvme_ctrl *ctrl);
 size_t cemu_dev_get_size(struct block_device *bdev);
 void *cemu_dev_get_p2p_addr(struct block_device *bdev);
 void cemu_bio_end_io(struct bio *bio);
+int cemu_kv_create_mrs(struct cemu_dev *dev, unsigned long arg);
+int cemu_kv_bind(struct cemu_dev *dev, unsigned long arg);
+int cemu_kv_delete_mrs(struct cemu_dev *dev, u16 rsid);
+void cemu_kv_cleanup(struct cemu_dev *dev);
 
 #endif /* __LINUX_CEMU_H__ */

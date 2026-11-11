@@ -516,8 +516,12 @@ err:
 static int cemu_delete_mrs(struct cemu_dev *dev, unsigned long arg)
 {
 	struct ioctl_create_mrs delete;
+	int ret;
 	if (copy_from_user(&delete, (void __user *)arg, sizeof(delete)))
 		return -EFAULT;
+	ret = cemu_kv_delete_mrs(dev, delete.rsid);
+	if (ret != -ENOENT)
+		return ret;
 
 	union nvme_result result;
 	struct nvme_command cmd = {};
@@ -525,9 +529,8 @@ static int cemu_delete_mrs(struct cemu_dev *dev, unsigned long arg)
 	cmd.mrs_manage.opcode = 0x21;
 	cmd.mrs_manage.rsid = delete.rsid;
 	cmd.mrs_manage.sel = 1;
-	__nvme_submit_sync_cmd(dev->admin_q, &cmd, &result,
+	return __nvme_submit_sync_cmd(dev->admin_q, &cmd, &result,
 			NULL, 0, NVME_QID_ANY, 0);
-	return 0;
 }
 
 static long cemu_cdev_ioctl(struct file *filp, unsigned int ioctl_cmd,
@@ -536,6 +539,10 @@ static long cemu_cdev_ioctl(struct file *filp, unsigned int ioctl_cmd,
 	struct cemu_dev *dev = filp->private_data;
 
 	switch (ioctl_cmd) {
+	case IOCTL_CEMU_CREATE_MRS_PINNED:
+		return cemu_kv_create_mrs(dev, arg);
+	case IOCTL_CEMU_BIND_FDM_KV:
+		return cemu_kv_bind(dev, arg);
 	case IOCTL_CEMU_DOWNLOAD:
 		printk(KERN_INFO "cemu_cdev_ioctl IOCTL_CEMU_DOWNLOAD\n");
 		return cemu_load_program(dev, arg);
@@ -712,6 +719,8 @@ int cemu_dev_add(struct pci_dev *pdev, struct nvme_ctrl *ctrl)
 	}
 	dev->pdev = pdev;
 	mutex_init(&dev->lock);
+	mutex_init(&dev->mrs_lock);
+	INIT_LIST_HEAD(&dev->pinned_mrs);
 
 	ns = nvme_find_get_ns(ctrl, 1);	// FIXME: nsid
 	if (ns == NULL) {
@@ -831,6 +840,7 @@ void cemu_dev_remove(struct pci_dev *pdev, struct nvme_ctrl *ctrl)
 	struct sysfs_program *prog, *tmp;
 
 	printk(KERN_INFO "CEMU cemu_dev_remove\n");
+	cemu_kv_cleanup(dev);
 	mutex_lock(&g_lock);
 	if (dev->idx >= 0 && dev->idx < CEMU_MAX_MINOR) {
 		cemu_bdev[dev->idx] = NULL;

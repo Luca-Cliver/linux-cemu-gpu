@@ -801,6 +801,11 @@ static enum elv_merge blk_try_req_merge(struct request *req,
 static struct request *attempt_merge(struct request_queue *q,
 				     struct request *req, struct request *next)
 {
+#ifdef CONFIG_NVME_CEMU
+	if ((req->bio && req->bio->bi_cemu.transfer_id) ||
+	    (next->bio && next->bio->bi_cemu.transfer_id))
+		return NULL;
+#endif
 	if (!rq_mergeable(req) || !rq_mergeable(next))
 		return NULL;
 
@@ -915,6 +920,10 @@ bool blk_attempt_req_merge(struct request_queue *q, struct request *rq,
 
 bool blk_rq_merge_ok(struct request *rq, struct bio *bio)
 {
+#ifdef CONFIG_NVME_CEMU
+	if (bio->bi_cemu.transfer_id || (rq->bio && rq->bio->bi_cemu.transfer_id))
+		return false;
+#endif
 	if (!rq_mergeable(rq) || !bio_mergeable(bio))
 		return false;
 

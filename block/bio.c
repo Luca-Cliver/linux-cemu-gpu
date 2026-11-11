@@ -258,6 +258,9 @@ void bio_init(struct bio *bio, struct block_device *bdev, struct bio_vec *table,
 	bio->bi_iter.bi_bvec_done = 0;
 	bio->bi_end_io = NULL;
 	bio->bi_private = NULL;
+#ifdef CONFIG_NVME_CEMU
+	memset(&bio->bi_cemu, 0, sizeof(bio->bi_cemu));
+#endif
 #ifdef CONFIG_BLK_CGROUP
 	bio->bi_blkg = NULL;
 	bio->bi_issue.value = 0;
@@ -814,6 +817,9 @@ static int __bio_clone(struct bio *bio, struct bio *bio_src, gfp_t gfp)
 	bio_set_flag(bio, BIO_CLONED);
 	bio->bi_ioprio = bio_src->bi_ioprio;
 	bio->bi_iter = bio_src->bi_iter;
+#ifdef CONFIG_NVME_CEMU
+	bio->bi_cemu = bio_src->bi_cemu;
+#endif
 
 	if (bio->bi_bdev) {
 		if (bio->bi_bdev == bio_src->bi_bdev &&

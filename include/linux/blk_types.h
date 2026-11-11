@@ -277,6 +277,13 @@ struct bio {
 	blk_qc_t		bi_cookie;
 	bio_end_io_t		*bi_end_io;
 	void			*bi_private;
+#ifdef CONFIG_NVME_CEMU
+	struct {
+		u64 transfer_id;
+		u64 input_sector;
+		u32 total_bytes;
+	} bi_cemu;
+#endif
 #ifdef CONFIG_BLK_CGROUP
 	/*
 	 * Represents the association of the css and request_queue for the bio.

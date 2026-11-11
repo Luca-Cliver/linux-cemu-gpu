@@ -58,6 +58,16 @@ struct ioctl_create_mrs {
 	__u16	rsid;          /* out for CREATE_MRS / in for DELETE_MRS */
 };
 
+struct ioctl_fdm_kv_bind {
+	__u16 rsid;
+	__u16 pind;
+	__u32 bytes;
+	__u64 addr;
+};
+
+#define IOCTL_CEMU_CREATE_MRS_PINNED _IOWR(CEMU_IOCTL_MAGIC, 0x07, struct ioctl_create_mrs)
+#define IOCTL_CEMU_BIND_FDM_KV _IOW(CEMU_IOCTL_MAGIC, 0x08, struct ioctl_fdm_kv_bind)
+
 #define IOCTL_CEMU_DOWNLOAD    _IOWR(CEMU_IOCTL_MAGIC, 0x00, struct ioctl_download)
 #define IOCTL_CEMU_UNLOAD      _IOW (CEMU_IOCTL_MAGIC, 0x01, struct ioctl_download)
 #define IOCTL_CEMU_ACTIVATE    _IOW (CEMU_IOCTL_MAGIC, 0x02, struct ioctl_download)

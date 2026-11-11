@@ -21,6 +21,60 @@ static int fdmfs_release(struct inode *inode, struct file *filp) {
 	return 0;
 }
 
+struct fdmfs_kv_write {
+	u64 transfer_id;
+	u64 input_sector;
+	u32 total_bytes;
+};
+
+static void fdmfs_submit_kv(const struct iomap_iter *iter, struct bio *bio,
+			    loff_t file_offset)
+{
+	const struct fdmfs_kv_write *write = iter->private;
+
+	bio->bi_cemu.transfer_id = write->transfer_id;
+	bio->bi_cemu.input_sector = write->input_sector;
+	bio->bi_cemu.total_bytes = write->total_bytes;
+	bio->bi_opf |= REQ_NOMERGE;
+	submit_bio(bio);
+}
+
+static const struct iomap_dio_ops fdmfs_kv_dio_ops = {
+	.submit_io = fdmfs_submit_kv,
+};
+
+static ssize_t fdmfs_kv_write(struct kiocb *iocb, struct iov_iter *iter)
+{
+	struct fdmfs_inode *inode = FDMFS_I(file_inode(iocb->ki_filp));
+	struct fdmfs_kv_write write;
+	size_t bytes = iov_iter_count(iter);
+	ssize_t ret;
+
+	if (!is_sync_kiocb(iocb) || (iocb->ki_flags & (IOCB_NOWAIT | IOCB_HIPRI)))
+		return -EOPNOTSUPP;
+	if (iocb->ki_pos || !bytes || bytes % 512 || bytes > inode->kv_input_bytes || bytes > U32_MAX)
+		return -EINVAL;
+	if (!mutex_trylock(&inode->kv_write_lock))
+		return -EBUSY;
+	if (inode->kv_failed || inode->kv_transfer_id == U64_MAX) {
+		ret = -EIO;
+		goto out;
+	}
+	write.transfer_id = ++inode->kv_transfer_id;
+	write.input_sector = inode->region->off >> 9;
+	write.total_bytes = bytes;
+	ret = iomap_dio_rw(iocb, iter, &fdmfs_iomap_ops, &fdmfs_kv_dio_ops,
+			   IOMAP_DIO_FORCE_WAIT, &write, 0);
+	if (ret != bytes) {
+		inode->kv_failed = true;
+		if (ret >= 0)
+			ret = -EIO;
+	}
+out:
+	mutex_unlock(&inode->kv_write_lock);
+	return ret;
+}
+
 static ssize_t fdmfs_rw_iter(struct kiocb *iocb, struct iov_iter *iter)
 {
 	// pr_info("FDMFS: rw_iter, size %lu, off %llu\n", iov_iter_count(iter), iocb->ki_pos);
@@ -33,7 +87,13 @@ static ssize_t fdmfs_rw_iter(struct kiocb *iocb, struct iov_iter *iter)
 	struct inode *ino = file_inode(iocb->ki_filp);
 
 	inode_lock_shared(ino);
-	ssize_t ret = iomap_dio_rw(iocb, iter, &fdmfs_iomap_ops, NULL, 0, NULL, 0);
+	ssize_t ret;
+	if (FDMFS_I(ino)->region_pins && !is_sync_kiocb(iocb))
+		ret = -EOPNOTSUPP;
+	else if (iov_iter_rw(iter) == WRITE && FDMFS_I(ino)->kv_registered)
+		ret = fdmfs_kv_write(iocb, iter);
+	else
+		ret = iomap_dio_rw(iocb, iter, &fdmfs_iomap_ops, NULL, 0, NULL, 0);
 	trace_fdmfs_rw_middle(iocb);
 	inode_unlock_shared(ino);
 	file_accessed(iocb->ki_filp);
@@ -48,6 +108,9 @@ ssize_t fdmfs_copy_file_range_kiocb(struct kiocb *kiocb, struct file *file_in,
 	trace_fdmfs_copy_file_range_begin(file_in);
 	bool in_is_fdmfs = file_in->f_op == &fdmfs_fops;
 	bool out_is_fdmfs = file_out->f_op == &fdmfs_fops;
+	if ((in_is_fdmfs && READ_ONCE(FDMFS_I(file_inode(file_in))->region_pins)) ||
+	    (out_is_fdmfs && READ_ONCE(FDMFS_I(file_inode(file_out))->region_pins)))
+		return -EBUSY;
 	struct fdmfs_inode *inode = in_is_fdmfs ? file_in->private_data : file_out->private_data;
 	struct iov_iter iter;
 	struct bio_vec bvec;
@@ -86,6 +149,9 @@ ssize_t fdmfs_copy_file_range(struct file *file_in, loff_t pos_in,
 	trace_fdmfs_copy_file_range_begin(file_in);
 	bool in_is_fdmfs = file_in->f_op == &fdmfs_fops;
 	bool out_is_fdmfs = file_out->f_op == &fdmfs_fops;
+	if ((in_is_fdmfs && READ_ONCE(FDMFS_I(file_inode(file_in))->region_pins)) ||
+	    (out_is_fdmfs && READ_ONCE(FDMFS_I(file_inode(file_out))->region_pins)))
+		return -EBUSY;
 	struct fdmfs_inode *inode = in_is_fdmfs ? file_in->private_data : file_out->private_data;
 	struct kiocb kiocb;
 	struct iov_iter iter;
@@ -255,6 +321,83 @@ int fdmfs_get_memory_range(struct file *filp, struct nvme_memory_range *mr)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(fdmfs_get_memory_range);
+
+int fdmfs_pin_memory_range(struct file *file, struct block_device *bdev,
+			   struct nvme_memory_range *range)
+{
+	struct inode *inode;
+	struct fdmfs_inode *fdm;
+	int ret;
+
+	if (!file || file->f_op != &fdmfs_fops ||
+	    !(file->f_mode & FMODE_WRITE) || !(file->f_mode & FMODE_READ))
+		return -EINVAL;
+	inode = file_inode(file);
+	inode_lock(inode);
+	fdm = FDMFS_I(inode);
+	if (inode->i_nlink != 1 || fdm->sbi->cemu_bdev != bdev || fdm->region_pins ||
+	    !fdm->region || fdm->region->size > U32_MAX) {
+		ret = -EINVAL;
+	} else {
+		ret = fdmfs_get_memory_range(file, range);
+		if (!ret)
+			fdm->region_pins++;
+	}
+	inode_unlock(inode);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(fdmfs_pin_memory_range);
+
+void fdmfs_unpin_memory_range(struct file *file)
+{
+	struct inode *inode = file_inode(file);
+
+	inode_lock(inode);
+	WARN_ON_ONCE(!FDMFS_I(inode)->region_pins);
+	FDMFS_I(inode)->region_pins = 0;
+	inode_unlock(inode);
+}
+EXPORT_SYMBOL_GPL(fdmfs_unpin_memory_range);
+
+int fdmfs_register_input(struct file *file, u64 input_bytes)
+{
+	struct inode *inode = file_inode(file);
+	struct fdmfs_inode *fdm = FDMFS_I(inode);
+	int ret = 0;
+
+	inode_lock(inode);
+	if (fdm->region_pins != 1 || fdm->kv_registered || !input_bytes ||
+	    input_bytes % 512 || input_bytes > MAX_RW_COUNT || input_bytes > fdm->region->size) {
+		ret = -EINVAL;
+	} else {
+		fdm->kv_registered = true;
+		fdm->kv_failed = true;
+		fdm->kv_input_bytes = input_bytes;
+		fdm->kv_transfer_id = 0;
+	}
+	inode_unlock(inode);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(fdmfs_register_input);
+
+void fdmfs_enable_input(struct file *file)
+{
+	struct inode *inode = file_inode(file);
+
+	inode_lock(inode);
+	FDMFS_I(inode)->kv_failed = false;
+	inode_unlock(inode);
+}
+EXPORT_SYMBOL_GPL(fdmfs_enable_input);
+
+void fdmfs_unregister_input_locked(struct file *file)
+{
+	struct inode *inode = file_inode(file);
+
+	FDMFS_I(inode)->kv_registered = false;
+	FDMFS_I(inode)->kv_failed = false;
+}
+EXPORT_SYMBOL_GPL(fdmfs_unregister_input_locked);
 
 const struct file_operations fdmfs_fops = {
 	.open			= fdmfs_open,

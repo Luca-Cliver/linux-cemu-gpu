@@ -77,6 +77,7 @@ struct inode *fdmfs_icreate(struct fdmfs_sb_info *sbi, struct mnt_idmap *idmap,
 	fdmfs_inode->sbi = sbi;
 	fdmfs_inode->ino = inode->i_ino;
 	fdmfs_inode->inode = inode;
+	mutex_init(&fdmfs_inode->kv_write_lock);
 	fdmfs_inode->name = name;
 	INIT_LIST_HEAD(&fdmfs_inode->sibling);
 	INIT_LIST_HEAD(&fdmfs_inode->children);
@@ -123,6 +124,8 @@ static struct dentry *fdmfs_lookup(struct inode *dir, struct dentry *dentry,
 static int fdmfs_link(struct dentry *old, struct inode *dir, struct dentry *new)
 {
 	struct inode *inode = d_inode(old);
+	if (FDMFS_I(inode)->region_pins)
+		return -EBUSY;
 
 	pr_info("FDMFS: link %s\n", new->d_name.name);
 
@@ -135,6 +138,8 @@ static int fdmfs_link(struct dentry *old, struct inode *dir, struct dentry *new)
 static int fdmfs_unlink(struct inode *dir, struct dentry *dentry)
 {
 	struct inode *inode = d_inode(dentry);
+	if (FDMFS_I(inode)->region_pins)
+		return -EBUSY;
 
 	fdmfs_del_entry(FDMFS_I(inode));
 	inode_set_ctime_to_ts(inode, inode_get_ctime(dir));
@@ -181,6 +186,9 @@ static int fdmfs_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 	struct inode *inode = d_inode(old_dentry);
 	struct fdmfs_inode *fdmfs_inode = FDMFS_I(inode);
 
+	if (fdmfs_inode->region_pins ||
+	    (d_inode(new_dentry) && FDMFS_I(d_inode(new_dentry))->region_pins))
+		return -EBUSY;
 	inode_init_owner(idmap, inode, new_dir, inode->i_mode);
 
 	fdmfs_inode->name = new_dentry->d_name.name;
@@ -188,6 +196,14 @@ static int fdmfs_rename(struct mnt_idmap *idmap, struct inode *old_dir,
 	fdmfs_add_entry(FDMFS_I(new_dir), fdmfs_inode);
 
 	return 0;
+}
+
+static int fdmfs_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
+			 struct iattr *attr)
+{
+	if ((attr->ia_valid & ATTR_SIZE) && FDMFS_I(d_inode(dentry))->region_pins)
+		return -EBUSY;
+	return simple_setattr(idmap, dentry, attr);
 }
 
 // O_DIRECT requires direct_IO()
@@ -207,7 +223,7 @@ const struct inode_operations fdmfs_dir_inode_ops = {
 };
 
 const struct inode_operations fdmfs_inode_ops = {
-	.setattr	= simple_setattr,
+	.setattr	= fdmfs_setattr,
 	.getattr	= simple_getattr,
 };
 

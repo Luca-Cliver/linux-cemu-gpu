@@ -958,6 +958,11 @@ static blk_status_t nvme_prep_rq(struct nvme_dev *dev, struct request *req)
 		struct nvme_command *cmd = &iod->cmd;
 		int is_memory_copy = is_memory_copy_cmnd(dev, req, cmd);
 		int is_memory_rw = is_memory_rw_cmnd(dev, req);
+		if (req->bio && req->bio->bi_cemu.transfer_id &&
+		    (!is_memory_rw || is_memory_copy || req_op(req) != REQ_OP_WRITE)) {
+			ret = BLK_STS_IOERR;
+			goto out_free_cmd;
+		}
 		if (is_memory_copy) {
 			union nvme_copy_format *cf = kzalloc(sizeof(union nvme_copy_format), GFP_DMA);
 			struct nvme_memory_copy_cmd *copy = (void *)cmd;
@@ -1014,6 +1019,23 @@ static blk_status_t nvme_prep_rq(struct nvme_dev *dev, struct request *req)
 				rw->sb = cmd->rw.slba * 512;
 				rw->length = blk_rq_bytes(req);
 				rw->nsid = 2;
+				memset(rw->rsvd13, 0, sizeof(rw->rsvd13));
+				if (req->bio->bi_cemu.transfer_id) {
+					struct bio *bio = req->bio;
+					u64 sector = blk_rq_pos(req);
+					u64 base = bio->bi_cemu.input_sector;
+					u32 total = bio->bi_cemu.total_bytes;
+
+					if (bio->bi_next || sector < base ||
+					    sector - base >= (total >> 9) ||
+					    blk_rq_bytes(req) > total - ((sector - base) << 9)) {
+						ret = BLK_STS_IOERR;
+						goto out_free_cmd;
+					}
+					rw->rsvd13[0] = cpu_to_le32(lower_32_bits(bio->bi_cemu.transfer_id));
+					rw->rsvd13[1] = cpu_to_le32(upper_32_bits(bio->bi_cemu.transfer_id));
+					rw->rsvd13[2] = cpu_to_le32(total);
+				}
 				if (op_is_write(req_op(req)))
 					rw->opcode = 5;	// memory write
 				else
